@@ -23,6 +23,12 @@ jobs:
     env:
       TZ: Asia/Shanghai   # runner 默认 UTC：不加会把日志时间与补签日期算错一天
     steps:
+      - name: 随机延时 0~10 分钟
+        run: |
+          DELAY=$((RANDOM % 600))
+          echo "本次随机延时 $DELAY 秒 (约 $((DELAY / 60)) 分钟)..."
+          sleep $DELAY
+
       - name: Checkout
         uses: actions/checkout@v4
 
