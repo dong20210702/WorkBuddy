@@ -67,6 +67,9 @@
                              always → 每次都推
                              fail   → 仅本轮有异常时推（签到未确认、账号异常中断）
                              0      → 完全关闭推送
+   TELEGRAM_BOT_TOKEN        【可选】Telegram 机器人 token（BotFather 创建，形如 123456:ABC...）
+   TELEGRAM_CHAT_ID          【可选】接收消息的 chat id（个人/群/频道，群与频道一般为负数）
+                             两个都配才启用；推送失败不影响签到流程
    WECOM_WEBHOOK             【可选】企业微信群机器人（完整 URL 或仅 key）
    DINGTALK_WEBHOOK          【可选】钉钉群机器人 webhook（安全设置：自定义关键词或加签）
    DINGTALK_SECRET           【可选】钉钉加签密钥（机器人选「加签」时必填）
@@ -172,7 +175,7 @@
    · 凭据体检：续期前本地看 RT/AT 结构与签发域（typ=Offline / 国内 realm），
      把 12153 token format error 提前翻译成“粘反了 / 粘错了文件 / 截断了”
    · 微信关注任务：需真人扫码关注满 24 小时，脚本识别并提示，不自动完成
-   · 推送渠道：PushPlus / Bark / WxPusher / Server酱 / 企业微信 / 钉钉 / 青龙默认通知，配了哪个推哪个（都没配只提示）
+   · 推送渠道：PushPlus / Bark / WxPusher / Server酱 / Telegram / 企业微信 / 钉钉 / 青龙默认通知，配了哪个推哪个（都没配只提示）
      Server酱兼容 sctp 方糖专属通道（自动切到 {uid}.push.ft07.com），title 含换行会自动压成单行
      青龙通知同时兼容新版「应用授权」（QL_CLIENT_ID/QL_CLIENT_SECRET→/open/system/notify）
      与旧版 auth.json（含 2.18+ 的 data/config 数据目录）两种形态
@@ -5551,6 +5554,36 @@ def _wxpusher_notify(title, content):
     return False
 
 
+def _telegram_notify(title, content):
+    """Telegram 机器人推送；未配置 TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID 则跳过。
+
+    · 走 Bot API：POST https://api.telegram.org/bot<token>/sendMessage
+    · 用纯文本发送（不设 parse_mode），签到报告里的 _ * [ 等字符不会触发 Markdown 解析报错
+    · 单条消息上限 4096 字符，超长按字符截断
+    · 国内网络直连 Telegram 常不通，可在 GitHub Actions（境外）运行，或本地设 HTTPS_PROXY
+    """
+    token = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+    if not token or not chat_id:
+        return False
+    text = "%s\n%s" % (title, content)
+    if len(text) > 4000:
+        text = text[:4000] + "\n...(内容过长已截断)"
+    try:
+        r = requests.post("https://api.telegram.org/bot%s/sendMessage" % token,
+                          json={"chat_id": chat_id, "text": text,
+                                "disable_web_page_preview": True},
+                          timeout=20)
+        d = r.json()
+        if d.get("ok"):
+            print("📢 Telegram 推送成功")
+            return True
+        print("📢 Telegram 推送失败: %s" % str(d.get("description", ""))[:120])
+    except Exception as e:
+        print("📢 Telegram 异常: %s" % str(e)[:80])
+    return False
+
+
 def send_notify(title, content):
     """PushPlus 推送；未配置 PUSHPLUS_TOKEN 则跳过"""
     token = os.environ.get("PUSHPLUS_TOKEN", "").strip()
@@ -5727,7 +5760,7 @@ def _ql_notify(title, content):
 
 
 def send_notify_all(title, content):
-    """推送到所有已配置的渠道：PushPlus / Bark / WxPusher / Server酱 / 企业微信 / 钉钉 / 青龙默认通知。
+    """推送到所有已配置的渠道：PushPlus / Bark / WxPusher / Server酱 / Telegram / 企业微信 / 钉钉 / 青龙默认通知。
 
     配了哪个推哪个，都没配就只打印一行说明（不影响签到流程）。
     """
@@ -5735,12 +5768,13 @@ def send_notify_all(title, content):
                _bark_notify(title, content),       # Bark (iOS)
                _wxpusher_notify(title, content),   # WxPusher (微信)
                _serverchan_notify(title, content),  # Server酱 (微信)
+               _telegram_notify(title, content),   # Telegram
                _wecom_notify(title, content),      # 企业微信
                _dingtalk_notify(title, content),   # 钉钉
                _ql_notify(title, content)]         # 青龙面板默认通知
     if not any(results):
         print("ℹ️ 未配置推送渠道（PUSHPLUS_TOKEN / BARK_URL / WXPUSHER_APP_TOKEN+WXPUSHER_UID / "
-              "SERVERCHAN_SENDKEY / WECOM_WEBHOOK / DINGTALK_WEBHOOK / "
+              "SERVERCHAN_SENDKEY / TELEGRAM_BOT_TOKEN+TELEGRAM_CHAT_ID / WECOM_WEBHOOK / DINGTALK_WEBHOOK / "
               "青龙应用授权 QL_CLIENT_ID+QL_CLIENT_SECRET 任选其一）")
     return any(results)
 

@@ -908,6 +908,15 @@ def notify(text, title="WorkBuddy AI 每日活跃"):
                           json={"token": token, "title": title, "content": raw, "template": "txt"}, timeout=15)
         except Exception as error:
             log("⚠️ PushPlus 推送失败: %s" % error)
+    tg_token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    tg_chat = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if tg_token and tg_chat:
+        try:
+            requests.post("https://api.telegram.org/bot%s/sendMessage" % tg_token,
+                          json={"chat_id": tg_chat, "text": (title + "\n" + text)[:4000],
+                                "disable_web_page_preview": True}, timeout=15)
+        except Exception as error:
+            log("⚠️ Telegram 推送失败: %s" % error)
 
 
 def main():
